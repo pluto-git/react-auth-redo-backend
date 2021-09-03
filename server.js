@@ -1,5 +1,7 @@
 require("dotenv").config();
 const express = require("express");
+const jwt = require("express-jwt");
+const jwksRsa = require("jwks-rsa");
 const ManagementClient = require("auth0").ManagementClient;
 const cors = require("cors");
 
@@ -26,29 +28,51 @@ const auth0 = new ManagementClient({
   clientSecret: authConfig.clientSecret,
 });
 
-app.get("/api/users", (req, res) => {
+const checkJwt = jwt({
+  secret: jwksRsa.expressJwtSecret({
+    cache: true,
+    rateLimit: true,
+    jwksRequestsPerMinute: 5,
+    jwksUri: `https://${authConfig.domain}/.well-known/jwks.json`,
+  }),
+
+  // Validate the audience (Identifier) and the issuer (Domain).
+  audience: authConfig.audience,
+  issuer: `https://${authConfig.domain}/`,
+  algorithms: ["RS256"],
+});
+
+app.get("/", (req, res) => {
+  res.json({ Status: "It works!" });
+});
+
+app.get("/api/users", checkJwt, (req, res) => {
   auth0.getUsers((err, users) => {
     res.json(users);
+    if (err) {
+      res.json(err);
+    }
   });
 });
 
-app.patch("/api/users", (req, res) => {
+app.patch("/api/users", checkJwt, (req, res) => {
   const { selectedUsers, blockedStatus } = req.body;
-  console.log(blockedStatus);
-  console.log(selectedUsers);
   selectedUsers.forEach((user_id) => {
-    auth0.users.update({ id: user_id }, { blocked: blockedStatus }, (err, user) => {
-      if (err) {
-        res.json({ error: err });
+    auth0.users.update(
+      { id: user_id },
+      { blocked: blockedStatus },
+      (err, user) => {
+        if (err) {
+          res.json({ error: err });
+        }
       }
-      console.log(user);
-    });
+    );
   });
 
   res.status(200).json({ status: "Successfully updated the selected users" });
 });
 
-app.delete("/api/users", (req, res) => {
+app.delete("/api/users", checkJwt, (req, res) => {
   const selectedUsers = req.body.selectedUsers;
   selectedUsers.forEach((user_id) => {
     auth0.deleteUser({ id: user_id }, (err) => {
